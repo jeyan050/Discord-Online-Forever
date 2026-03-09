@@ -31,7 +31,7 @@ discriminator = userinfo["discriminator"]
 userid = userinfo["id"]
 
 async def onliner(token, status):
-    async with websockets.connect("wss://gateway.discord.gg/?v=9&encoding=json") as ws:
+    async with websockets.connect("wss://gateway.discord.gg/?v=9&encoding=json", max_size=None) as ws:
         start = json.loads(await ws.recv())
         heartbeat = start["d"]["heartbeat_interval"]
 
