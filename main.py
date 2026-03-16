@@ -71,7 +71,7 @@ async def onliner(token, status):
                 "afk": False,
             },
         }
-        await ws.send(json.dumps(cstatus))
+        # await ws.send(json.dumps(cstatus))
 
         online = {"op": 1, "d": "None"}
         await asyncio.sleep(heartbeat / 1000)
