@@ -30,6 +30,15 @@ username = userinfo["username"]
 discriminator = userinfo["discriminator"]
 userid = userinfo["id"]
 
+async def receiver(ws):
+    async for msg in ws:
+        data = json.loads(msg)
+
+async def heartbeat_loop(ws, interval):
+    while True:
+        await asyncio.sleep(interval)
+        await ws.send(json.dumps({"op": 1, "d": None}))
+
 async def onliner(token, status):
     async with websockets.connect("wss://gateway.discord.gg/?v=9&encoding=json", max_size=None) as ws:
         start = json.loads(await ws.recv())
@@ -71,11 +80,12 @@ async def onliner(token, status):
                 "afk": False,
             },
         }
-        # await ws.send(json.dumps(cstatus))
+        await ws.send(json.dumps(cstatus))
 
-        online = {"op": 1, "d": "None"}
-        await asyncio.sleep(heartbeat / 1000)
-        await ws.send(json.dumps(online))
+        await asyncio.gather(
+            heartbeat_loop(ws, heartbeat_interval),
+            receiver(ws)
+        )
 
 async def run_onliner():
     if platform.system() == "Windows":
