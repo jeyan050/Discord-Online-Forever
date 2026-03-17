@@ -31,6 +31,7 @@ discriminator = userinfo["discriminator"]
 userid = userinfo["id"]
 session_id = None
 seq = None
+last_heartbeat_ack = True
 
 async def receiver(ws):
     global session_id, seq
@@ -38,13 +39,16 @@ async def receiver(ws):
         data = json.loads(message)
 
         # Track sequence number
-        if data.get("s") is not None:
+        if "s" in data and data.get("s") is not None:
             seq = data["s"]
 
         # READY event → contains session_id
         if data.get("t") == "READY":
             session_id = data["d"]["session_id"]
 
+        if data.get("op") == 11:  # HEARTBEAT ACK
+            last_heartbeat_ack = True
+        
         # Server requests reconnect
         if data.get("op") == 7:
             await ws.close()
@@ -55,9 +59,22 @@ async def receiver(ws):
             seq = None
 
 async def heartbeat_loop(ws, interval):
-    while True:
-        await asyncio.sleep(interval)
-        await ws.send(json.dumps({"op": 1, "d": None}))
+    global seq
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            
+            if not last_heartbeat_ack:
+                # missed ACK → connection is stale
+                await ws.close()
+                return
+                
+            await ws.send(json.dumps({
+                "op": 1,
+                "d": seq
+            }))
+    except (websockets.exceptions.ConnectionClosed, asyncio.CancelledError):
+        pass
 
 async def onliner(token, status):
     global session_id, seq
