@@ -1,21 +1,21 @@
-name: Hourly Redeploy
+# name: Hourly Redeploy
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: "0 * * * *"  # every hour
+# on:
+#   workflow_dispatch:
+#   schedule:
+#     - cron: "0 * * * *"  # every hour
 
-jobs:
-  redeploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Update timestamp
-        run: date > redeploy.txt
-      - name: Commit & push
-        run: |
-          git config user.name "bot"
-          git config user.email "bot@example.com"
-          git add redeploy.txt
-          git commit -m "hourly redeploy"
-          git push
+# jobs:
+#   redeploy:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v6
+#       - name: Update timestamp
+#         run: date > redeploy.txt
+#       - name: Commit & push
+#         run: |
+#           git config user.name "bot"
+#           git config user.email "bot@example.com"
+#           git add redeploy.txt
+#           git commit -m "hourly redeploy"
+#           git push
