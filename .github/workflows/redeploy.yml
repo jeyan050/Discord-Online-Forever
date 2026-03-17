@@ -9,7 +9,7 @@ jobs:
   redeploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Update timestamp
         run: date > redeploy.txt
       - name: Commit & push
