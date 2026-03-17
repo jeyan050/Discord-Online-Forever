@@ -87,15 +87,29 @@ async def onliner(token, status):
             receiver(ws)
         )
 
+# async def run_onliner():
+#     if platform.system() == "Windows":
+#         os.system("cls")
+#     else:
+#         os.system("clear")
+#     print(f"{Fore.WHITE}[{Fore.LIGHTGREEN_EX}+{Fore.WHITE}] Logged in as {Fore.LIGHTBLUE_EX}{username} {Fore.WHITE}({userid})!")
+#     while True:
+#         await onliner(usertoken, status)
+#         await asyncio.sleep(50)
+
 async def run_onliner():
     if platform.system() == "Windows":
         os.system("cls")
     else:
         os.system("clear")
-    print(f"{Fore.WHITE}[{Fore.LIGHTGREEN_EX}+{Fore.WHITE}] Logged in as {Fore.LIGHTBLUE_EX}{username} {Fore.WHITE}({userid})!")
+        print(f"[+] Logged in as {username} ({userid})!")
+    
     while True:
-        await onliner(usertoken, status)
-        await asyncio.sleep(50)
+        try:
+            await onliner(usertoken, status)
+        except websockets.exceptions.ConnectionClosedError:
+            print("[!] Connection closed. Reconnecting in 5s...")
+            await asyncio.sleep(5)
 
 keep_alive()
 asyncio.run(run_onliner())
