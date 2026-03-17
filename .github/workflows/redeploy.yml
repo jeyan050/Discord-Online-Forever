@@ -3,7 +3,7 @@ name: Hourly Redeploy
 on:
   workflow_dispatch:
   schedule:
-    - cron: "* * * * *"  # every hour
+    - cron: "0 * * * *"  # every hour
 
 jobs:
   redeploy:
