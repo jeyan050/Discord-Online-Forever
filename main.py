@@ -11,7 +11,7 @@ from keep_alive import keep_alive
 init(autoreset=True)
 
 status = "online"  # online/dnd/idle
-custom_status = "discord.gg/duelarena 100b monthly giveaways!"  # Custom Status
+custom_status = "discord.gg/duelarena - 100b monthly giveaways!"  # Custom Status
 
 usertoken = os.getenv("TOKEN")
 if not usertoken:
