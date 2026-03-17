@@ -42,7 +42,8 @@ async def heartbeat_loop(ws, interval):
 async def onliner(token, status):
     async with websockets.connect("wss://gateway.discord.gg/?v=9&encoding=json", max_size=None) as ws:
         start = json.loads(await ws.recv())
-        heartbeat = start["d"]["heartbeat_interval"]
+        # heartbeat = start["d"]["heartbeat_interval"]
+        heartbeat_interval = start["d"]["heartbeat_interval"] / 1000
 
         auth = {
             "op": 2,
