@@ -29,10 +29,26 @@ userinfo = requests.get("https://canary.discordapp.com/api/v9/users/@me", header
 username = userinfo["username"]
 discriminator = userinfo["discriminator"]
 userid = userinfo["id"]
+session_id = None
+seq = None
 
 async def receiver(ws):
-    async for msg in ws:
-        data = json.loads(msg)
+    global session_id, seq
+    async for message in ws:
+        data = json.loads(message)
+
+        # Track sequence number
+        if data.get("s") is not None:
+            seq = data["s"]
+
+        # READY event → contains session_id
+        if data.get("t") == "READY":
+            session_id = data["d"]["session_id"]
+
+        # Server requests reconnect
+        if data.get("op") == 7:
+            await ws.close()
+            break
 
 async def heartbeat_loop(ws, interval):
     while True:
@@ -59,29 +75,41 @@ async def onliner(token, status):
         }
         await ws.send(json.dumps(auth))
 
-        cstatus = {
-            "op": 3,
-            "d": {
-                "since": 0,
-                "activities": [
-                    {
-                        "type": 4,
-                        "state": custom_status,
-                        "name": "Custom Status",
-                        "id": "custom",
-                                #Uncomment the below lines if you want an emoji in the status
-                                #"emoji": {
-                                    #"name": "emoji name",
-                                    #"id": "emoji id",
-                                    #"animated": False,
-                                #},
+        if session_id:
+            payload = {
+                "op": 6,  # RESUME
+                "d": {
+                    "token": token,
+                    "session_id": session_id,
+                    "seq": seq
+                }
+            }
+        else:
+            payload = {
+                "op": 2,  # IDENTIFY
+                "d": {
+                    "token": token,
+                    "properties": {
+                        "$os": platform.system(),
+                        "$browser": "Chrome",
+                        "$device": platform.system(),
+                    },
+                    "presence": {
+                        "status": status,
+                        "afk": False,
+                        "activities": [
+                            {
+                                "type": 4,
+                                "state": custom_status,
+                                "name": "Custom Status",
+                                "id": "custom"
                             }
-                        ],
-                "status": status,
-                "afk": False,
-            },
-        }
-        await ws.send(json.dumps(cstatus))
+                        ]
+                    }
+                }
+            }
+        
+        await ws.send(json.dumps(payload))
 
         await asyncio.gather(
             heartbeat_loop(ws, heartbeat_interval),
@@ -108,9 +136,9 @@ async def run_onliner():
     while True:
         try:
             await onliner(usertoken, status)
-        except websockets.exceptions.ConnectionClosedError:
-            print("[!] Connection closed. Reconnecting in 5s...")
-            await asyncio.sleep(5)
+        except websockets.exceptions.ConnectionClosedOK:
+            print("[*] Discord requested reconnect (1001). Reconnecting immediately...")
+            await asyncio.sleep(1)
 
 keep_alive()
 asyncio.run(run_onliner())
