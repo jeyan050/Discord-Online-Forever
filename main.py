@@ -50,34 +50,25 @@ async def receiver(ws):
             await ws.close()
             break
 
+        if data.get("op") == 9:  # INVALID SESSION
+            session_id = None
+            seq = None
+
 async def heartbeat_loop(ws, interval):
     while True:
         await asyncio.sleep(interval)
         await ws.send(json.dumps({"op": 1, "d": None}))
 
 async def onliner(token, status):
+    global session_id, seq
+
     async with websockets.connect("wss://gateway.discord.gg/?v=9&encoding=json", max_size=None) as ws:
         start = json.loads(await ws.recv())
-        # heartbeat = start["d"]["heartbeat_interval"]
         heartbeat_interval = start["d"]["heartbeat_interval"] / 1000
 
-        auth = {
-            "op": 2,
-            "d": {
-                "token": token,
-                "properties": {
-                    "$os": "Windows 10",
-                    "$browser": "Google Chrome",
-                    "$device": "Windows",
-                },
-                "presence": {"status": status, "afk": False},
-            },
-        }
-        await ws.send(json.dumps(auth))
-
-        if session_id:
+        if session_id and seq is not None:
             payload = {
-                "op": 6,  # RESUME
+                "op": 6,
                 "d": {
                     "token": token,
                     "session_id": session_id,
@@ -86,7 +77,7 @@ async def onliner(token, status):
             }
         else:
             payload = {
-                "op": 2,  # IDENTIFY
+                "op": 2,
                 "d": {
                     "token": token,
                     "properties": {
@@ -108,23 +99,19 @@ async def onliner(token, status):
                     }
                 }
             }
-        
+
         await ws.send(json.dumps(payload))
 
-        await asyncio.gather(
-            heartbeat_loop(ws, heartbeat_interval),
-            receiver(ws)
-        )
+        # ✅ KEEP CONNECTION ALIVE HERE
+        tasks = [
+            asyncio.create_task(heartbeat_loop(ws, heartbeat_interval)),
+            asyncio.create_task(receiver(ws))
+        ]
 
-# async def run_onliner():
-#     if platform.system() == "Windows":
-#         os.system("cls")
-#     else:
-#         os.system("clear")
-#     print(f"{Fore.WHITE}[{Fore.LIGHTGREEN_EX}+{Fore.WHITE}] Logged in as {Fore.LIGHTBLUE_EX}{username} {Fore.WHITE}({userid})!")
-#     while True:
-#         await onliner(usertoken, status)
-#         await asyncio.sleep(50)
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+
+        for task in pending:
+            task.cancel()
 
 async def run_onliner():
     if platform.system() == "Windows":
