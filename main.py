@@ -10,93 +10,121 @@ from keep_alive import keep_alive
 
 init(autoreset=True)
 
-status = "online"  # online/dnd/idle
-custom_status = "discord.gg/duelarena - 100b monthly giveaways!"  # Custom Status
+# --- CONFIG ---
+status = "online"
+custom_status = "discord.gg/duelarena - 100b monthly giveaways!"
 
-usertoken = os.getenv("TOKEN")
-if not usertoken:
-    print(f"{Fore.WHITE}[{Fore.RED}-{Fore.WHITE}] Please add a token inside Secrets.")
+TOKEN = os.getenv("TOKEN")
+if not TOKEN:
+    print(f"{Fore.RED}[-] No token provided.")
     sys.exit()
 
-headers = {"Authorization": usertoken, "Content-Type": "application/json"}
-
-validate = requests.get("https://canary.discordapp.com/api/v9/users/@me", headers=headers)
-if validate.status_code != 200:
-    print(f"{Fore.WHITE}[{Fore.RED}-{Fore.WHITE}] Your token might be invalid. Please check it again.")
-    sys.exit()
-
-userinfo = requests.get("https://canary.discordapp.com/api/v9/users/@me", headers=headers).json()
-username = userinfo["username"]
-discriminator = userinfo["discriminator"]
-userid = userinfo["id"]
+# --- GLOBAL STATE ---
+sequence = None
 session_id = None
-seq = None
 last_heartbeat_ack = True
 
-async def receiver(ws):
-    global session_id, seq
-    async for message in ws:
-        data = json.loads(message)
+# --- VALIDATE TOKEN ---
+headers = {"Authorization": TOKEN, "Content-Type": "application/json"}
+res = requests.get("https://canary.discordapp.com/api/v9/users/@me", headers=headers)
 
-        # Track sequence number
-        if "s" in data and data.get("s") is not None:
-            seq = data["s"]
+if res.status_code != 200:
+    print(f"{Fore.RED}[-] Invalid token.")
+    sys.exit()
 
-        # READY event → contains session_id
-        if data.get("t") == "READY":
-            session_id = data["d"]["session_id"]
+user = res.json()
+print(f"{Fore.GREEN}[+] Logged in as {user['username']} ({user['id']})")
 
-        if data.get("op") == 11:  # HEARTBEAT ACK
-            last_heartbeat_ack = True
-        
-        # Server requests reconnect
-        if data.get("op") == 7:
-            await ws.close()
-            break
-
-        if data.get("op") == 9:  # INVALID SESSION
-            session_id = None
-            seq = None
-
+# --- HEARTBEAT ---
 async def heartbeat_loop(ws, interval):
-    global seq
+    global sequence, last_heartbeat_ack
+
     try:
         while True:
             await asyncio.sleep(interval)
-            
+
             if not last_heartbeat_ack:
-                # missed ACK → connection is stale
+                print(f"{Fore.RED}[!] Missed heartbeat ACK. Reconnecting...")
                 await ws.close()
                 return
-                
+
+            last_heartbeat_ack = False
+
             await ws.send(json.dumps({
                 "op": 1,
-                "d": seq
+                "d": sequence
             }))
     except (websockets.exceptions.ConnectionClosed, asyncio.CancelledError):
         pass
 
-async def onliner(token, status):
-    global session_id, seq
+# --- RECEIVER ---
+async def receiver(ws):
+    global sequence, session_id, last_heartbeat_ack
 
-    async with websockets.connect("wss://gateway.discord.gg/?v=9&encoding=json", max_size=None) as ws:
-        start = json.loads(await ws.recv())
-        heartbeat_interval = start["d"]["heartbeat_interval"] / 1000
+    async for message in ws:
+        data = json.loads(message)
 
-        if session_id and seq is not None:
+        # Track sequence
+        if data.get("s") is not None:
+            sequence = data["s"]
+
+        op = data.get("op")
+        t = data.get("t")
+
+        # READY → store session
+        if t == "READY":
+            session_id = data["d"]["session_id"]
+            print(f"{Fore.GREEN}[+] Session established")
+
+        # RESUMED
+        if t == "RESUMED":
+            print(f"{Fore.GREEN}[+] Session resumed")
+
+        # Heartbeat ACK
+        if op == 11:
+            last_heartbeat_ack = True
+
+        # Reconnect request
+        if op == 7:
+            print(f"{Fore.YELLOW}[!] Server requested reconnect")
+            await ws.close()
+
+        # Invalid session
+        if op == 9:
+            print(f"{Fore.RED}[!] Invalid session")
+            session_id = None
+            await asyncio.sleep(2)
+            await ws.close()
+
+# --- CONNECTION ---
+async def connect():
+    global session_id, sequence
+
+    async with websockets.connect(
+        "wss://gateway.discord.gg/?v=9&encoding=json",
+        max_size=None
+    ) as ws:
+
+        # HELLO
+        hello = json.loads(await ws.recv())
+        interval = hello["d"]["heartbeat_interval"] / 1000
+
+        # RESUME or IDENTIFY
+        if session_id and sequence is not None:
             payload = {
                 "op": 6,
                 "d": {
-                    "token": token,
+                    "token": TOKEN,
                     "session_id": session_id,
-                    "seq": seq
+                    "seq": sequence
                 }
             }
+            print(f"{Fore.CYAN}[+] Attempting RESUME")
         else:
             payload = {
                 "op": 2,
                 "d": {
-                    "token": token,
+                    "token": TOKEN,
                     "properties": {
                         "$os": platform.system(),
                         "$browser": "Chrome",
@@ -116,33 +144,40 @@ async def onliner(token, status):
                     }
                 }
             }
+            print(f"{Fore.CYAN}[+] IDENTIFY")
 
         await ws.send(json.dumps(payload))
 
-        # ✅ KEEP CONNECTION ALIVE HERE
-        tasks = [
-            asyncio.create_task(heartbeat_loop(ws, heartbeat_interval)),
-            asyncio.create_task(receiver(ws))
-        ]
+        # Run tasks
+        hb = asyncio.create_task(heartbeat_loop(ws, interval))
+        recv = asyncio.create_task(receiver(ws))
 
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+        done, pending = await asyncio.wait(
+            [hb, recv],
+            return_when=asyncio.FIRST_COMPLETED
+        )
 
+        # Cancel remaining
         for task in pending:
             task.cancel()
 
-async def run_onliner():
-    if platform.system() == "Windows":
-        os.system("cls")
-    else:
-        os.system("clear")
-        print(f"[+] Logged in as {username} ({userid})!")
-    
+        for task in done:
+            try:
+                await task
+            except:
+                pass
+
+# --- MAIN LOOP ---
+async def main():
     while True:
         try:
-            await onliner(usertoken, status)
-        except websockets.exceptions.ConnectionClosedOK:
-            print("[*] Discord requested reconnect (1001). Reconnecting immediately...")
-            await asyncio.sleep(1)
+            await connect()
+        except Exception as e:
+            print(f"{Fore.RED}[!] Error: {e}")
+        
+        print(f"{Fore.YELLOW}[*] Reconnecting in 5s...\n")
+        await asyncio.sleep(5)
 
+# --- RUN ---
 keep_alive()
-asyncio.run(run_onliner())
+asyncio.run(main())
